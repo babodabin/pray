@@ -83,7 +83,8 @@
   .stepNum{flex:0 0 30px;height:30px;border-radius:50%;background:var(--paper2);
     color:var(--accent);font-family:'Gowun Batang',serif;font-weight:700;font-size:15px;
     display:flex;align-items:center;justify-content:center;}
-  .step.filled .stepNum{background:var(--accent);color:#fff;}
+  .step.done .stepNum{background:var(--done);color:#fff;}
+  .step.done .stepTag{color:var(--done);}
   .stepTitles{flex:1;min-width:0;}
   .stepTag{font-family:'Gowun Batang',serif;font-size:16px;font-weight:700;letter-spacing:0.02em;}
   .stepSub{font-size:11.5px;color:var(--dim);margin-top:1px;}
@@ -167,7 +168,7 @@
     <div id="inters"></div>
     <button class="addCat" id="addCat">+ 분류 추가</button>
 
-    <div class="saveNote">쓰는 즉시 이 기기에 저장됩니다.<br>어제의 중보 내용은 오늘로 이어져요. 바뀐 것만 고치세요.</div>
+    <div class="saveNote">단계의 번호를 누르면 ✓ 기도 완료 체크가 됩니다. 글은 선택이에요.<br>쓰는 즉시 이 기기에 저장됩니다. 어제의 중보 내용은 오늘로 이어져요.</div>
   </div>
 </div>
 
@@ -180,7 +181,7 @@ const STORE='goolbang_prayer_v1';
 // ── 5단계 가이드 (고정) ──
 const STEPS=[
   {tag:'열기', name:'감사와 찬양', sub:'이냐시오 1단 · 예수전도단 1단',
-   method:'오늘 느낀 작은 고마움 하나를 떠올리고, 그 고마움을 주신 하느님의 크심을 인정합니다.',
+   method:'오늘 느낀 작은 고마움 하나를 떠올리고, 그 고마움을 주신 하나님의 크심을 인정합니다.',
    merit:'내 상황이 욥처럼 고통스럽더라도, 아주 작은 긍정의 실마리를 찾아내어 마음의 에너지를 ‘감사’로 전환시킵니다.',
    key:'하나님 찬양 · 감사함'},
   {tag:'비우기', name:'정화와 대적', sub:'이냐시오 4단 · 예수전도단 2,4단',
@@ -205,6 +206,10 @@ const DEFAULT_CATS=['가족','친구','친척'];
 // ── 데이터 ──
 let DB=load();
 function load(){ try{return JSON.parse(localStorage.getItem(STORE))||{days:{}};}catch(e){return {days:{}};} }
+// 구버전 데이터에 done 배열 추가(글이 있던 단계는 체크된 것으로 간주)
+Object.keys(DB.days).forEach(k=>{ const d=DB.days[k];
+  if(!d.done) d.done=(d.steps||['','','','','']).map(s=>!!(s&&s.trim()));
+});
 function save(){ try{localStorage.setItem(STORE,JSON.stringify(DB));}catch(e){} }
 
 function keyOf(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -218,14 +223,12 @@ function getDay(key){
   let cats;
   if(prevKey){ cats=DB.days[prevKey].cats.map(c=>({nm:c.nm, body:c.body})); }
   else { cats=DEFAULT_CATS.map(n=>({nm:n, body:''})); }
-  return { steps:['','','','',''], cats };
+  return { steps:['','','','',''], done:[false,false,false,false,false], cats };
 }
 function commitDay(key,data){ DB.days[key]=data; save(); }
+// 기도 여부 = 체크(✓) 기준
 function dayHasContent(data){
-  if(!data) return false;
-  if(data.steps && data.steps.some(s=>s&&s.trim())) return true;
-  if(data.cats && data.cats.some(c=>c.body&&c.body.trim())) return true;
-  return false;
+  return !!(data && data.done && data.done.some(Boolean));
 }
 
 // ── 연속 일수 ──
@@ -291,23 +294,28 @@ function persist(){ commitDay(curKey,curData); renderStreak(); renderCal(); }
 function renderSteps(){
   const box=$('#steps'); box.innerHTML='';
   STEPS.forEach((s,i)=>{
-    const filled=curData.steps[i]&&curData.steps[i].trim();
-    const el=document.createElement('div'); el.className='step'+(filled?' filled':'');
+    const done=!!curData.done[i];
+    const el=document.createElement('div'); el.className='step'+(done?' done':'');
     el.innerHTML=
-      '<button class="stepBtn"><div class="stepNum">'+(i+1)+'</div>'+
+      '<button class="stepBtn"><div class="stepNum">'+(done?'✓':(i+1))+'</div>'+
       '<div class="stepTitles"><div class="stepTag">['+s.tag+'] '+s.name+'</div>'+
       '<div class="stepSub">'+s.sub+'</div></div><div class="stepChev">›</div></button>'+
       '<div class="stepBody"><div class="stepInner">'+
       '<div class="guide"><div class="gline"><span class="gk">방법.</span> '+s.method+'</div>'+
       '<div class="gline"><span class="gk">장점.</span> '+s.merit+'</div>'+
       '<div class="gkey">'+s.key+'</div></div>'+
-      '<textarea placeholder="이 단계의 기도를 적어보세요…">'+esc(curData.steps[i]||'')+'</textarea>'+
+      '<textarea placeholder="남기고 싶은 기도·메모가 있다면 적어보세요… (선택)">'+esc(curData.steps[i]||'')+'</textarea>'+
       '</div></div>';
     const btn=el.querySelector('.stepBtn');
     btn.addEventListener('click',()=>{ el.classList.toggle('open'); });
+    const num=el.querySelector('.stepNum');
+    num.addEventListener('click',e=>{ e.stopPropagation();
+      curData.done[i]=!curData.done[i];
+      el.classList.toggle('done', curData.done[i]);
+      num.textContent=curData.done[i]?'✓':(i+1);
+      persist(); });
     const ta=el.querySelector('textarea');
-    ta.addEventListener('input',e=>{ curData.steps[i]=e.target.value;
-      el.classList.toggle('filled', !!e.target.value.trim()); persist(); });
+    ta.addEventListener('input',e=>{ curData.steps[i]=e.target.value; persist(); });
     box.appendChild(el);
   });
 }
@@ -325,7 +333,7 @@ function renderInters(){
     const ta=el.querySelector('textarea');
     ta.addEventListener('input',e=>{ curData.cats[i].body=e.target.value; persist(); });
     el.querySelector('.del').addEventListener('click',()=>{
-      if(confirm('"'+(c.nm||'이 분류')+'" 분류를 오늘 기록에서 지울까요?')){
+      if(confirm('"'+(c.nm||'이 분류')+'" 분류를 지울까요? 내일부터도 이어지지 않아요.')){
         curData.cats.splice(i,1); persist(); renderInters(); }
     });
     el.querySelector('.up').addEventListener('click',()=>{
