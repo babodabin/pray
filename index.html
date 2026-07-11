@@ -83,8 +83,14 @@
   .stepNum{flex:0 0 30px;height:30px;border-radius:50%;background:var(--paper2);
     color:var(--accent);font-family:'Gowun Batang',serif;font-weight:700;font-size:15px;
     display:flex;align-items:center;justify-content:center;}
-  .step.done .stepNum{background:var(--done);color:#fff;}
-  .step.done .stepTag{color:var(--done);}
+  .step.filled .stepNum{background:var(--accent);color:#fff;}
+
+  /* 오늘 기도 체크 */
+  .prayedBtn{width:100%;padding:15px;border-radius:14px;border:1px solid var(--line);
+    background:var(--card);font-family:'Gowun Batang',serif;font-size:16px;font-weight:700;
+    color:var(--ink2);cursor:pointer;margin-top:16px;letter-spacing:0.03em;}
+  .prayedBtn:active{background:var(--paper2);}
+  .prayedBtn.on{background:var(--done);border-color:var(--done);color:#fff;}
   .stepTitles{flex:1;min-width:0;}
   .stepTag{font-family:'Gowun Batang',serif;font-size:16px;font-weight:700;letter-spacing:0.02em;}
   .stepSub{font-size:11.5px;color:var(--dim);margin-top:1px;}
@@ -160,6 +166,7 @@
     <div class="dayHead">
       <div><div class="dlong" id="dLong"></div><div class="dsub" id="dSub"></div></div>
     </div>
+    <button class="prayedBtn" id="prayedBtn">🕯 기도했어요 — 눌러서 체크</button>
 
     <div class="sectLabel">매일의 기도</div>
     <div id="steps"></div>
@@ -168,7 +175,7 @@
     <div id="inters"></div>
     <button class="addCat" id="addCat">+ 분류 추가</button>
 
-    <div class="saveNote">단계의 번호를 누르면 ✓ 기도 완료 체크가 됩니다. 글은 선택이에요.<br>쓰는 즉시 이 기기에 저장됩니다. 어제의 중보 내용은 오늘로 이어져요.</div>
+    <div class="saveNote">위의 ‘기도했어요’ 버튼을 누르면 달력에 표시돼요. 글쓰기는 선택입니다.<br>쓰는 즉시 이 기기에 저장됩니다. 어제의 중보 내용은 오늘로 이어져요.</div>
   </div>
 </div>
 
@@ -206,9 +213,13 @@ const DEFAULT_CATS=['가족','친구','친척'];
 // ── 데이터 ──
 let DB=load();
 function load(){ try{return JSON.parse(localStorage.getItem(STORE))||{days:{}};}catch(e){return {days:{}};} }
-// 구버전 데이터에 done 배열 추가(글이 있던 단계는 체크된 것으로 간주)
+// 구버전 데이터 마이그레이션: 글이나 체크가 있던 날은 기도한 날로 간주
 Object.keys(DB.days).forEach(k=>{ const d=DB.days[k];
-  if(!d.done) d.done=(d.steps||['','','','','']).map(s=>!!(s&&s.trim()));
+  if(typeof d.prayed==='undefined'){
+    d.prayed = !!( (d.done&&d.done.some(Boolean))
+      || (d.steps&&d.steps.some(s=>s&&s.trim()))
+      || (d.cats&&d.cats.some(c=>c.body&&c.body.trim())) );
+  }
 });
 function save(){ try{localStorage.setItem(STORE,JSON.stringify(DB));}catch(e){} }
 
@@ -223,12 +234,12 @@ function getDay(key){
   let cats;
   if(prevKey){ cats=DB.days[prevKey].cats.map(c=>({nm:c.nm, body:c.body})); }
   else { cats=DEFAULT_CATS.map(n=>({nm:n, body:''})); }
-  return { steps:['','','','',''], done:[false,false,false,false,false], cats };
+  return { prayed:false, steps:['','','','',''], cats };
 }
 function commitDay(key,data){ DB.days[key]=data; save(); }
-// 기도 여부 = 체크(✓) 기준
+// 기도 여부 = ‘기도했어요’ 체크 기준
 function dayHasContent(data){
-  return !!(data && data.done && data.done.some(Boolean));
+  return !!(data && data.prayed);
 }
 
 // ── 연속 일수 ──
@@ -283,7 +294,7 @@ function openDay(key){
   $('#dLong').textContent=(d.getMonth()+1)+'월 '+d.getDate()+'일';
   $('#dSub').textContent=d.getFullYear()+'년 · '+days[d.getDay()]+'요일'
     + (key===keyOf(today)?' · 오늘':'');
-  renderSteps(); renderInters();
+  renderPrayed(); renderSteps(); renderInters();
   $('#day').classList.add('show');
   renderCal();
   $('#day').scrollIntoView({behavior:'smooth',block:'start'});
@@ -291,31 +302,36 @@ function openDay(key){
 
 function persist(){ commitDay(curKey,curData); renderStreak(); renderCal(); }
 
+function renderPrayed(){
+  const b=$('#prayedBtn');
+  b.classList.toggle('on', !!curData.prayed);
+  b.textContent = curData.prayed ? '✓ 기도했어요' : '🕯 기도했어요 — 눌러서 체크';
+}
+$('#prayedBtn').addEventListener('click',()=>{
+  curData.prayed=!curData.prayed;
+  persist(); renderPrayed();
+});
+
 function renderSteps(){
   const box=$('#steps'); box.innerHTML='';
   STEPS.forEach((s,i)=>{
-    const done=!!curData.done[i];
-    const el=document.createElement('div'); el.className='step'+(done?' done':'');
+    const filled=curData.steps[i]&&curData.steps[i].trim();
+    const el=document.createElement('div'); el.className='step'+(filled?' filled':'');
     el.innerHTML=
-      '<button class="stepBtn"><div class="stepNum">'+(done?'✓':(i+1))+'</div>'+
+      '<button class="stepBtn"><div class="stepNum">'+(i+1)+'</div>'+
       '<div class="stepTitles"><div class="stepTag">['+s.tag+'] '+s.name+'</div>'+
       '<div class="stepSub">'+s.sub+'</div></div><div class="stepChev">›</div></button>'+
       '<div class="stepBody"><div class="stepInner">'+
       '<div class="guide"><div class="gline"><span class="gk">방법.</span> '+s.method+'</div>'+
       '<div class="gline"><span class="gk">장점.</span> '+s.merit+'</div>'+
       '<div class="gkey">'+s.key+'</div></div>'+
-      '<textarea placeholder="남기고 싶은 기도·메모가 있다면 적어보세요… (선택)">'+esc(curData.steps[i]||'')+'</textarea>'+
+      '<textarea placeholder="이 단계의 기도를 적어보세요… (선택)">'+esc(curData.steps[i]||'')+'</textarea>'+
       '</div></div>';
     const btn=el.querySelector('.stepBtn');
     btn.addEventListener('click',()=>{ el.classList.toggle('open'); });
-    const num=el.querySelector('.stepNum');
-    num.addEventListener('click',e=>{ e.stopPropagation();
-      curData.done[i]=!curData.done[i];
-      el.classList.toggle('done', curData.done[i]);
-      num.textContent=curData.done[i]?'✓':(i+1);
-      persist(); });
     const ta=el.querySelector('textarea');
-    ta.addEventListener('input',e=>{ curData.steps[i]=e.target.value; persist(); });
+    ta.addEventListener('input',e=>{ curData.steps[i]=e.target.value;
+      el.classList.toggle('filled', !!e.target.value.trim()); persist(); });
     box.appendChild(el);
   });
 }
@@ -366,6 +382,11 @@ function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show')
 viewY=today.getFullYear(); viewM=today.getMonth();
 renderStreak(); renderCal();
 openDay(keyOf(today)); // 오늘 자동으로 펼침
+
+// 오프라인 지원(서비스워커)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
 </script>
 </body>
 </html>
